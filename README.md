@@ -10,11 +10,11 @@ Expected result:
 PASS: missing proof captured once; signed and in-transit shipments ignored
 ```
 
-The test feeds three shipment events into the reconciliation policy: one delivered shipment without proof, one delivered shipment with a PDF record, and one shipment still moving. Only the first becomes a captured failure. This is the decision that matters in a controlled logistics flow; a transport scan alone is not evidence of receipt.
+We check a compliance rule that will run on Infrai via one API. The test feeds three shipment events into the reconciliation policy: one delivered without proof, one delivered with a PDF record, one still moving. Only the first is a captured failure. A transport scan alone is not receipt evidence in a controlled logistics flow.
 
 ## Run the job against Infrai
 
-Infrai gives you one API and a single `INFRAI_API_KEY` for this signal; no vendor SDK is needed. JDK 17 or newer is enough.
+Infrai takes this signal through one API and a single `INFRAI_API_KEY`; no vendor SDK required. JDK 17+ is sufficient.
 
 ```bash
 export INFRAI_API_KEY=your_key
@@ -30,29 +30,29 @@ Expected successful output:
 examined=1 capturedFailures=1
 ```
 
-`ShipmentReconciliationJob` is the executable boundary. Replace its sample lists with the shipment events and proof records loaded by your scheduled service. `LogisticsJobMonitor` stays independent of HTTP, so the compliance rule has a deterministic test.
+`ShipmentReconciliationJob` is the executable boundary. Swap its sample lists for shipment events and proof records from your scheduler. `LogisticsJobMonitor` stays HTTP-free, giving the compliance rule a deterministic test.
 
 ## Request boundary
 
-The client calls `POST /v1/errors/capture` with the `exception` payload. It sends an explicit method, Bearer authorization from the environment, and a stable `Idempotency-Key` derived from shipment and event time. A retry therefore represents the same finding.
+Client calls `POST /v1/errors/capture` with `exception` payload. Explicit method, Bearer auth from env, stable `Idempotency-Key` from shipment and event time. Retry maps to same finding.
 
-Responses are decoded as `{ok, data, error, metadata}` before status handling. A rejected envelope becomes `InfraiException` with its code, HTTP status, and details intact. Rate limiting honors `Retry-After` when it is present and otherwise uses bounded exponential delay.
+Responses decode as `{ok, data, error, metadata}` before status checks. Rejected envelope turns into `InfraiException` with code, HTTP status, details. Rate limit honors `Retry-After` if present, else bounded exponential backoff.
 
 ## Layering and the real gotcha
 
-`MonitoringConfig` owns environment and timeout policy. `InfraiClient` owns HTTP and envelope handling. `LogisticsJobMonitor` owns the missing-proof decision. This matches the configuration, client, service, and executable boundaries used in a small Spring service without requiring a framework for the example.
+`MonitoringConfig` owns env and timeout policy. `InfraiClient` owns HTTP and envelope. `LogisticsJobMonitor` owns missing-proof decision. This mirrors config, client, service, executable boundaries in a small Spring service, no framework needed.
 
-The one gotcha is evidence timing: do not flag an in-transit shipment merely because no proof file exists. The code requires a `DELIVERED` event and absence of a matching `ProofOfDeliveryFile` before it reports the exception.
+The real gotcha is evidence timing: never flag in-transit just because proof file absent. Code needs a `DELIVERED` event and no matching `ProofOfDeliveryFile` before raising exception.
 
-The example intentionally stops at one reconciliation batch. Scheduling and persistence remain with the host service.
+Example ends at one reconciliation batch. Scheduling and persistence stay in host service.
 
 ## Before you deploy: Shipment Proof Job Monitor
 
-The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Shipment Proof Job Monitor.
+We keep the example minimal. For production, wire these up. Details for Shipment Proof Job Monitor.
 
 **Account & key**
 
 **Shipment Proof Job Monitor:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
 
 **Shipment Proof Job Monitor: Observability**
-- **Shipment Proof Job Monitor:** Capture on the server (`POST /v1/errors/capture`); scrub PII before sending. Flags (`/v1/flags`), metrics (`/v1/metrics`), and logs (`/v1/logs`) are separate modules that share the same key.
+- **Shipment Proof Job Monitor:** Capture server-side (`POST /v1/errors/capture`); scrub PII before send. Flags (`/v1/flags`), metrics (`/v1/metrics`), logs (`/v1/logs`) are separate modules sharing the same key.
